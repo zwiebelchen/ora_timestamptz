@@ -1,0 +1,641 @@
+--
+-- ora_timestamptz regression tests
+--
+SET TimeZone = 'Europe/Berlin';
+CREATE EXTENSION ora_timestamptz;
+SET ora_timestamptz.nls_timestamp_tz_format = 'DD-MON-RR HH.MI.SSXFF AM TZR';
+-- input forms: region, offset, RFC 9557, region + TZD, session zone
+SELECT '2026-10-16 14:30:00 Europe/Berlin'::ora_timestamptz;
+                 ora_timestamptz                 
+-------------------------------------------------
+ 2026-10-16 14:30:00.000000+02:00[Europe/Berlin]
+(1 row)
+
+SELECT '2026-10-16 14:30:00.123 +05:30'::ora_timestamptz;
+         ora_timestamptz          
+----------------------------------
+ 2026-10-16 14:30:00.123000+05:30
+(1 row)
+
+SELECT '2026-10-16T14:30:00+02:00[Europe/Berlin]'::ora_timestamptz;
+                 ora_timestamptz                 
+-------------------------------------------------
+ 2026-10-16 14:30:00.000000+02:00[Europe/Berlin]
+(1 row)
+
+SELECT '2026-10-16T14:30:00Z'::ora_timestamptz;
+         ora_timestamptz          
+----------------------------------
+ 2026-10-16 14:30:00.000000+00:00
+(1 row)
+
+SELECT '2026-10-16 14:30:00 UTC'::ora_timestamptz;
+            ora_timestamptz            
+---------------------------------------
+ 2026-10-16 14:30:00.000000+00:00[UTC]
+(1 row)
+
+SELECT '2026-10-16 14:30'::ora_timestamptz;
+                 ora_timestamptz                 
+-------------------------------------------------
+ 2026-10-16 14:30:00.000000+02:00[Europe/Berlin]
+(1 row)
+
+SELECT '2026-10-16'::ora_timestamptz;
+                 ora_timestamptz                 
+-------------------------------------------------
+ 2026-10-16 00:00:00.000000+02:00[Europe/Berlin]
+(1 row)
+
+SELECT '2026-10-16 14:30 europe/berlin'::ora_timestamptz;
+                 ora_timestamptz                 
+-------------------------------------------------
+ 2026-10-16 14:30:00.000000+02:00[Europe/Berlin]
+(1 row)
+
+SELECT '2026-10-16 14:30:00-0330'::ora_timestamptz;
+         ora_timestamptz          
+----------------------------------
+ 2026-10-16 14:30:00.000000-03:30
+(1 row)
+
+SELECT '2026-10-16 14:30:00 +02:00 Europe/Berlin'::ora_timestamptz;
+                 ora_timestamptz                 
+-------------------------------------------------
+ 2026-10-16 14:30:00.000000+02:00[Europe/Berlin]
+(1 row)
+
+-- invalid input
+SELECT '2026-10-16 14:30 Mars/Olympus'::ora_timestamptz;
+ERROR:  time zone "Mars/Olympus" not recognized
+LINE 1: SELECT '2026-10-16 14:30 Mars/Olympus'::ora_timestamptz;
+               ^
+HINT:  Use an offset like '+02:00' or an IANA region like 'Europe/Berlin' (Oracle ORA-01882).
+SELECT '2026-02-29 14:30 UTC'::ora_timestamptz;
+ERROR:  day of month must be between 1 and last day of month (Oracle ORA-01847)
+LINE 1: SELECT '2026-02-29 14:30 UTC'::ora_timestamptz;
+               ^
+SELECT '2026-10-16 24:00 UTC'::ora_timestamptz;
+ERROR:  time field out of range (Oracle ORA-01850/01851/01852)
+LINE 1: SELECT '2026-10-16 24:00 UTC'::ora_timestamptz;
+               ^
+SELECT '2026-10-16 14:30 +15:00'::ora_timestamptz;
+ERROR:  time zone offset out of range
+LINE 1: SELECT '2026-10-16 14:30 +15:00'::ora_timestamptz;
+               ^
+DETAIL:  Oracle allows offsets from -12:59 to +14:59 (ORA-01874).
+SELECT '2026-10-16 14:30:00.1234567891 UTC'::ora_timestamptz;
+ERROR:  invalid input syntax for type ora_timestamptz: "2026-10-16 14:30:00.1234567891 UTC"
+LINE 1: SELECT '2026-10-16 14:30:00.1234567891 UTC'::ora_timestamptz...
+               ^
+DETAIL:  more than 9 fractional second digits
+HINT:  Expected 'YYYY-MM-DD HH24:MI:SS[.FF] zone' (zone: '+HH:MI', 'Region [TZD]', '+HH:MI[Region]') or the format in ora_timestamptz.nls_timestamp_tz_format.
+SELECT pg_input_is_valid('garbage', 'ora_timestamptz');
+ pg_input_is_valid 
+-------------------
+ f
+(1 row)
+
+SELECT pg_input_is_valid('2026-10-16 14:30 UTC', 'ora_timestamptz');
+ pg_input_is_valid 
+-------------------
+ t
+(1 row)
+
+-- Oracle: values are equal if they denote the same instant
+SELECT '1999-01-15 8:00:00 -8:00'::ora_timestamptz = '1999-01-15 11:00:00 -5:00'::ora_timestamptz;
+ ?column? 
+----------
+ t
+(1 row)
+
+SELECT ora_timestamptz_identical('1999-01-15 8:00:00 -8:00', '1999-01-15 11:00:00 -5:00');
+ ora_timestamptz_identical 
+---------------------------
+ f
+(1 row)
+
+SELECT '2026-10-16 12:00 UTC'::ora_timestamptz < '2026-10-16 14:00:01 Europe/Berlin'::ora_timestamptz;
+ ?column? 
+----------
+ t
+(1 row)
+
+-- DST gap (ORA-01878) and overlap
+SELECT '2026-03-29 02:30:00 Europe/Berlin'::ora_timestamptz;
+ERROR:  local time 2026-03-29 02:30:00 does not exist in time zone "Europe/Berlin"
+LINE 1: SELECT '2026-03-29 02:30:00 Europe/Berlin'::ora_timestamptz;
+               ^
+DETAIL:  The time falls into a daylight saving time gap (Oracle ORA-01878).
+SELECT '2026-10-25 02:30:00 Europe/Berlin'::ora_timestamptz;
+                 ora_timestamptz                 
+-------------------------------------------------
+ 2026-10-25 02:30:00.000000+01:00[Europe/Berlin]
+(1 row)
+
+SELECT '2026-10-25 02:30:00 Europe/Berlin CEST'::ora_timestamptz;
+                 ora_timestamptz                 
+-------------------------------------------------
+ 2026-10-25 02:30:00.000000+02:00[Europe/Berlin]
+(1 row)
+
+SELECT '2026-10-25 02:30:00 Europe/Berlin CET'::ora_timestamptz;
+                 ora_timestamptz                 
+-------------------------------------------------
+ 2026-10-25 02:30:00.000000+01:00[Europe/Berlin]
+(1 row)
+
+SELECT '2026-10-25 02:30:00+02:00[Europe/Berlin]'::ora_timestamptz;
+                 ora_timestamptz                 
+-------------------------------------------------
+ 2026-10-25 02:30:00.000000+02:00[Europe/Berlin]
+(1 row)
+
+SELECT '2026-10-25 02:30:00 Europe/Berlin PDT'::ora_timestamptz;
+ERROR:  time zone abbreviation "PDT" does not match time zone region "Europe/Berlin" at the given local time
+LINE 1: SELECT '2026-10-25 02:30:00 Europe/Berlin PDT'::ora_timestam...
+               ^
+DETAIL:  Oracle ORA-01857.
+SELECT '2026-10-25 02:30:00+05:00[Europe/Berlin]'::ora_timestamptz;
+ERROR:  UTC offset does not match time zone region "Europe/Berlin" at the given local time
+LINE 1: SELECT '2026-10-25 02:30:00+05:00[Europe/Berlin]'::ora_times...
+               ^
+SET ora_timestamptz.error_on_overlap_time = on;
+SELECT '2026-10-25 02:30:00 Europe/Berlin'::ora_timestamptz;
+ERROR:  ambiguous local time in time zone "Europe/Berlin"
+LINE 1: SELECT '2026-10-25 02:30:00 Europe/Berlin'::ora_timestamptz;
+               ^
+DETAIL:  The time falls into a daylight saving time overlap (Oracle ORA-01883).
+HINT:  Add a time zone abbreviation (TZD) or a UTC offset to disambiguate.
+SELECT '2026-10-25 02:30:00 Europe/Berlin CEST'::ora_timestamptz;
+                 ora_timestamptz                 
+-------------------------------------------------
+ 2026-10-25 02:30:00.000000+02:00[Europe/Berlin]
+(1 row)
+
+RESET ora_timestamptz.error_on_overlap_time;
+-- precision (typmod), rounding like Oracle
+SELECT '2026-10-16 14:30:00.123456789 UTC'::ora_timestamptz;
+             ora_timestamptz              
+------------------------------------------
+ 2026-10-16 14:30:00.123456789+00:00[UTC]
+(1 row)
+
+SELECT '2026-10-16 14:30:00.123456789 UTC'::ora_timestamptz(9);
+             ora_timestamptz              
+------------------------------------------
+ 2026-10-16 14:30:00.123456789+00:00[UTC]
+(1 row)
+
+SELECT '2026-10-16 14:30:00.123456789 UTC'::ora_timestamptz(3);
+          ora_timestamptz           
+------------------------------------
+ 2026-10-16 14:30:00.123+00:00[UTC]
+(1 row)
+
+SELECT '2026-10-16 23:59:59.9999 UTC'::ora_timestamptz(0);
+        ora_timestamptz         
+--------------------------------
+ 2026-10-17 00:00:00+00:00[UTC]
+(1 row)
+
+SELECT '2026-10-16 14:30:00.5 UTC'::ora_timestamptz::ora_timestamptz(0);
+        ora_timestamptz         
+--------------------------------
+ 2026-10-16 14:30:01+00:00[UTC]
+(1 row)
+
+SELECT 'x'::text::ora_timestamptz(10);
+ERROR:  ora_timestamptz(10) precision must be between 0 and 9
+LINE 1: SELECT 'x'::text::ora_timestamptz(10);
+                          ^
+CREATE TABLE t (id int, ts ora_timestamptz(3));
+\d t
+                       Table "public.t"
+ Column |        Type        | Collation | Nullable | Default 
+--------+--------------------+-----------+----------+---------
+ id     | integer            |           |          | 
+ ts     | ora_timestamptz(3) |           |          | 
+
+INSERT INTO t VALUES (1, '2026-10-16 14:30:00.123456 Europe/Berlin');
+SELECT * FROM t;
+ id |                      ts                      
+----+----------------------------------------------
+  1 | 2026-10-16 14:30:00.123+02:00[Europe/Berlin]
+(1 row)
+
+-- arithmetic in UTC (Oracle doc example 4-6: DST end in New York)
+SELECT '2000-10-28 23:24:54 America/New_York'::ora_timestamptz(0) + interval '8 hours';
+                  ?column?                   
+---------------------------------------------
+ 2000-10-29 06:24:54-05:00[America/New_York]
+(1 row)
+
+SELECT '2026-03-28 12:00 Europe/Berlin'::ora_timestamptz + interval '1 day';
+                    ?column?                     
+-------------------------------------------------
+ 2026-03-29 13:00:00.000000+02:00[Europe/Berlin]
+(1 row)
+
+SELECT interval '1 hour' + '2026-10-16 14:30 +05:30'::ora_timestamptz;
+             ?column?             
+----------------------------------
+ 2026-10-16 15:30:00.000000+05:30
+(1 row)
+
+SELECT '2026-10-16 14:30 Europe/Berlin'::ora_timestamptz - interval '1 month';
+                    ?column?                     
+-------------------------------------------------
+ 2026-09-16 14:30:00.000000+02:00[Europe/Berlin]
+(1 row)
+
+SELECT '2026-01-31 10:00 UTC'::ora_timestamptz + interval '1 month';
+ERROR:  date not valid for month specified
+DETAIL:  Oracle ORA-01839: month arithmetic does not clamp to the last day of the month; it is evaluated in UTC.
+SELECT '2026-10-16 14:30 Europe/Berlin'::ora_timestamptz - '2026-10-10 10:00 UTC'::ora_timestamptz;
+         ?column?         
+--------------------------
+ @ 6 days 2 hours 30 mins
+(1 row)
+
+SELECT '2026-10-10 10:00 UTC'::ora_timestamptz - '2026-10-16 14:30:00.5 Europe/Berlin'::ora_timestamptz;
+               ?column?                
+---------------------------------------
+ @ 6 days 2 hours 30 mins 0.5 secs ago
+(1 row)
+
+SELECT '2026-10-16 14:30 UTC'::ora_timestamptz + interval '0.000001 sec';
+               ?column?                
+---------------------------------------
+ 2026-10-16 14:30:00.000001+00:00[UTC]
+(1 row)
+
+SELECT '2026-10-16 14:30 UTC'::ora_timestamptz + 'infinity'::interval;
+ERROR:  cannot add infinite interval to ora_timestamptz
+-- AT TIME ZONE / AT LOCAL
+SELECT '2026-10-16 14:30 Europe/Berlin'::ora_timestamptz AT TIME ZONE 'America/New_York';
+                      timezone                      
+----------------------------------------------------
+ 2026-10-16 08:30:00.000000-04:00[America/New_York]
+(1 row)
+
+SELECT '2026-10-16 14:30 Europe/Berlin'::ora_timestamptz AT TIME ZONE '-03:30';
+             timezone             
+----------------------------------
+ 2026-10-16 09:00:00.000000-03:30
+(1 row)
+
+SELECT '2026-10-16 14:30 Europe/Berlin'::ora_timestamptz AT TIME ZONE INTERVAL '05:45';
+             timezone             
+----------------------------------
+ 2026-10-16 18:15:00.000000+05:45
+(1 row)
+
+SELECT '2026-10-16 14:30 Europe/Berlin'::ora_timestamptz AT TIME ZONE 'SESSIONTIMEZONE';
+                    timezone                     
+-------------------------------------------------
+ 2026-10-16 14:30:00.000000+02:00[Europe/Berlin]
+(1 row)
+
+SELECT '2026-10-16 14:30 +00:00'::ora_timestamptz AT LOCAL;
+                    timezone                     
+-------------------------------------------------
+ 2026-10-16 16:30:00.000000+02:00[Europe/Berlin]
+(1 row)
+
+SELECT '2026-10-16 14:30 +00:00'::ora_timestamptz AT TIME ZONE 'Nowhere/City';
+ERROR:  time zone "Nowhere/City" not recognized
+HINT:  Use an offset like '+02:00' or an IANA region like 'Europe/Berlin' (Oracle ORA-01882).
+-- EXTRACT: Oracle returns UTC fields
+SELECT EXTRACT(YEAR FROM x), EXTRACT(MONTH FROM x), EXTRACT(DAY FROM x),
+       EXTRACT(HOUR FROM x), EXTRACT(MINUTE FROM x), EXTRACT(SECOND FROM x),
+       EXTRACT(TIMEZONE_HOUR FROM x), EXTRACT(TIMEZONE_MINUTE FROM x)
+FROM (SELECT '2026-10-17 01:30:05.25 Europe/Berlin'::ora_timestamptz AS x) s;
+ extract | extract | extract | extract | extract | extract | extract | extract 
+---------+---------+---------+---------+---------+---------+---------+---------
+    2026 |      10 |      16 |      23 |      30 |    5.25 |       2 |       0
+(1 row)
+
+SELECT EXTRACT(TIMEZONE_HOUR FROM x), EXTRACT(TIMEZONE_MINUTE FROM x),
+       ora_extract('timezone_region', x), ora_extract('timezone_abbr', x),
+       ora_extract('timezone_offset', x)
+FROM (SELECT '2026-10-16 14:30 -03:30'::ora_timestamptz AS x) s;
+ extract | extract | ora_extract | ora_extract | ora_extract 
+---------+---------+-------------+-------------+-------------
+      -3 |     -30 | UNKNOWN     | UNK         | -03:30
+(1 row)
+
+SELECT ora_extract('timezone_region', x), ora_extract('timezone_abbr', x)
+FROM (SELECT '2026-01-16 14:30 Europe/Berlin'::ora_timestamptz AS x) s;
+  ora_extract  | ora_extract 
+---------------+-------------
+ Europe/Berlin | CET
+(1 row)
+
+SELECT EXTRACT(TIMEZONE_REGION FROM '2026-10-16 14:30 UTC'::ora_timestamptz);
+ERROR:  EXTRACT(timezone_region FROM ora_timestamptz) returns text in Oracle and cannot be expressed via EXTRACT in PostgreSQL
+HINT:  Use ora_extract('timezone_region', value) instead.
+SELECT EXTRACT(EPOCH FROM '1970-01-01 01:00:00.5 Europe/Berlin'::ora_timestamptz);
+   extract   
+-------------
+ 0.500000000
+(1 row)
+
+SELECT EXTRACT(YEAR FROM '0000-06-01 00:00 UTC'::ora_timestamptz);
+ extract 
+---------
+      -1
+(1 row)
+
+-- TO_CHAR / TO_TIMESTAMP_TZ
+SELECT to_char('2026-10-16 14:30:05.123456 Europe/Berlin'::ora_timestamptz);
+                  to_char                   
+--------------------------------------------
+ 16-OCT-26 02.30.05.123456 PM EUROPE/BERLIN
+(1 row)
+
+SELECT to_char('2026-10-16 14:30:05.123456 Europe/Berlin'::ora_timestamptz,
+               'YYYY-MM-DD HH24:MI:SS.FF3 TZH:TZM TZR TZD');
+                      to_char                      
+---------------------------------------------------
+ 2026-10-16 14:30:05.123 +02:00 EUROPE/BERLIN CEST
+(1 row)
+
+SELECT to_char('2026-10-16 14:30:05.123456 Europe/Berlin'::ora_timestamptz,
+               'FMDay, DD. Month YYYY "um" HH24:MI tzr');
+                     to_char                     
+-------------------------------------------------
+ Friday, 16. October 2026 um 14:30 Europe/Berlin
+(1 row)
+
+SELECT to_char('2026-10-16 14:30:05 -03:30'::ora_timestamptz, 'Dy DDD D J SSSSS SYYYY a.m. TZR "/" TZD');
+                   to_char                    
+----------------------------------------------
+ Fri 289 6 2461330 52205  2026 p.m. -03:30 / 
+(1 row)
+
+SELECT to_char('2026-10-16 00:05:00 UTC'::ora_timestamptz(0), 'HH12:MI AM FF');
+  to_char  
+-----------
+ 12:05 AM 
+(1 row)
+
+SELECT to_char('2026-10-16 14:30 UTC'::ora_timestamptz, 'YYYY-MM-DD Q');
+ERROR:  date format not recognized: "YYYY-MM-DD Q"
+DETAIL:  Oracle ORA-01821.
+SELECT to_timestamp_tz('16-OCT-26 02.30.05.5 PM Europe/Berlin');
+                 to_timestamp_tz                 
+-------------------------------------------------
+ 2026-10-16 14:30:05.500000+02:00[Europe/Berlin]
+(1 row)
+
+SELECT to_timestamp_tz('2026-10-16 14:30 +02:00', 'YYYY-MM-DD HH24:MI TZH:TZM');
+         to_timestamp_tz          
+----------------------------------
+ 2026-10-16 14:30:00.000000+02:00
+(1 row)
+
+SELECT to_timestamp_tz('2026-10-16 14:30 -3:30', 'YYYY-MM-DD HH24:MI TZH:TZM');
+         to_timestamp_tz          
+----------------------------------
+ 2026-10-16 14:30:00.000000-03:30
+(1 row)
+
+SELECT to_timestamp_tz('25.10.2026 02:30 Europe/Berlin CEST', 'DD.MM.YYYY HH24:MI TZR TZD');
+                 to_timestamp_tz                 
+-------------------------------------------------
+ 2026-10-25 02:30:00.000000+02:00[Europe/Berlin]
+(1 row)
+
+SELECT to_timestamp_tz('16-Oct-1999 08:00:00.123456789 US/Pacific', 'DD-MON-YYYY HH24:MI:SS.FF TZR');
+                 to_timestamp_tz                 
+-------------------------------------------------
+ 1999-10-16 08:00:00.123456789-07:00[US/Pacific]
+(1 row)
+
+SELECT to_timestamp_tz('1999-10-16 08:00 +05:00', 'YYYY-MM-DD HH24:MI TZR');
+         to_timestamp_tz          
+----------------------------------
+ 1999-10-16 08:00:00.000000+05:00
+(1 row)
+
+SELECT to_timestamp_tz('2026-10-16 14:30 trailing', 'YYYY-MM-DD HH24:MI');
+ERROR:  "2026-10-16 14:30 trailing" does not match format "YYYY-MM-DD HH24:MI"
+DETAIL:  input value has extra characters at the end: "trailing" (Oracle ORA-01830)
+-- implicit conversion via NLS format, like Oracle
+SELECT '16-OCT-26 02.30.05.000000 PM US/Pacific'::ora_timestamptz;
+               ora_timestamptz                
+----------------------------------------------
+ 2026-10-16 14:30:05.000000-07:00[US/Pacific]
+(1 row)
+
+SET ora_timestamptz.output_format = 'nls';
+SELECT '2026-10-16 14:30:05.5 Europe/Berlin'::ora_timestamptz;
+              ora_timestamptz               
+--------------------------------------------
+ 16-OCT-26 02.30.05.500000 PM EUROPE/BERLIN
+(1 row)
+
+RESET ora_timestamptz.output_format;
+-- Oracle functions
+SELECT from_tz(timestamp '2026-10-16 14:30', 'Europe/Berlin');
+                     from_tz                     
+-------------------------------------------------
+ 2026-10-16 14:30:00.000000+02:00[Europe/Berlin]
+(1 row)
+
+SELECT from_tz(timestamp '2026-10-25 02:30', 'Europe/Berlin CEST');
+                     from_tz                     
+-------------------------------------------------
+ 2026-10-25 02:30:00.000000+02:00[Europe/Berlin]
+(1 row)
+
+SELECT from_tz(timestamp '2026-10-16 14:30', '+09:00');
+             from_tz              
+----------------------------------
+ 2026-10-16 14:30:00.000000+09:00
+(1 row)
+
+SELECT sys_extract_utc('2026-10-16 14:30:00.123456789 Europe/Berlin'::ora_timestamptz);
+         sys_extract_utc         
+---------------------------------
+ Fri Oct 16 12:30:00.123457 2026
+(1 row)
+
+SELECT tz_offset('Asia/Kolkata'), tz_offset('-07:00'), sessiontimezone();
+ tz_offset | tz_offset | sessiontimezone 
+-----------+-----------+-----------------
+ +05:30    | -07:00    | Europe/Berlin
+(1 row)
+
+SELECT systimestamp() IS NOT NULL, ora_current_timestamp(3) IS NOT NULL,
+       ora_extract('timezone_region', ora_current_timestamp());
+ ?column? | ?column? |  ora_extract  
+----------+----------+---------------
+ t        | t        | Europe/Berlin
+(1 row)
+
+-- casts
+SELECT '2026-10-16 14:30 Asia/Tokyo'::ora_timestamptz::timestamptz;
+          timestamptz          
+-------------------------------
+ Fri Oct 16 07:30:00 2026 CEST
+(1 row)
+
+SELECT '2026-10-16 14:30 Asia/Tokyo'::ora_timestamptz::timestamp;
+        timestamp         
+--------------------------
+ Fri Oct 16 14:30:00 2026
+(1 row)
+
+SELECT '2026-10-16 23:30 -05:00'::ora_timestamptz::date;
+    date    
+------------
+ 10-16-2026
+(1 row)
+
+SELECT timestamptz '2026-10-16 14:30+00'::ora_timestamptz;
+                 ora_timestamptz                 
+-------------------------------------------------
+ 2026-10-16 16:30:00.000000+02:00[Europe/Berlin]
+(1 row)
+
+SELECT timestamp '2026-10-16 14:30'::ora_timestamptz;
+                 ora_timestamptz                 
+-------------------------------------------------
+ 2026-10-16 14:30:00.000000+02:00[Europe/Berlin]
+(1 row)
+
+SELECT date '2026-10-16'::ora_timestamptz;
+             ora_timestamptz              
+------------------------------------------
+ 2026-10-16 00:00:00+02:00[Europe/Berlin]
+(1 row)
+
+SELECT timestamp '2026-03-29 02:30'::ora_timestamptz;
+ERROR:  local time 2026-03-29 02:30:00 does not exist in time zone "Europe/Berlin"
+DETAIL:  The time falls into a daylight saving time gap (Oracle ORA-01878).
+BEGIN;
+INSERT INTO t VALUES (2, now());
+SELECT ts = now()::ora_timestamptz(3) FROM t WHERE id = 2;
+ ?column? 
+----------
+ t
+(1 row)
+
+COMMIT;
+SELECT ora_timestamptz_iso(ts) = ts::text FROM t WHERE id = 1;
+ ?column? 
+----------
+ t
+(1 row)
+
+-- year range and BC (ISO notation: 0000 = 1 BC)
+SELECT '-4711-01-01 00:00 UTC'::ora_timestamptz, to_char('-4711-01-01 00:00 UTC'::ora_timestamptz, 'SYYYY-MM-DD');
+            ora_timestamptz             |   to_char   
+----------------------------------------+-------------
+ -4711-01-01 00:00:00.000000+00:00[UTC] | -4712-01-01
+(1 row)
+
+SELECT '-4712-12-31 00:00 UTC'::ora_timestamptz;
+ERROR:  year out of range
+LINE 1: SELECT '-4712-12-31 00:00 UTC'::ora_timestamptz;
+               ^
+DETAIL:  Oracle allows -4712 to 9999 (4713 BC to 9999 AD); in ISO notation used by the text input this is -4711 to 9999, where 0000 is 1 BC (Oracle ORA-01841).
+SELECT '9999-12-31 23:59:59 UTC'::ora_timestamptz + interval '1 second';
+ERROR:  ora_timestamptz out of range
+DETAIL:  Oracle allows -4712 to 9999 (4713 BC to 9999 AD) (Oracle ORA-01841).
+-- indexes, aggregates, joins
+CREATE TABLE ev (id int, ts ora_timestamptz);
+INSERT INTO ev SELECT g, ('2026-01-01 00:00 UTC'::ora_timestamptz + make_interval(mins => g))
+	AT TIME ZONE (ARRAY['Europe/Berlin','America/New_York','+05:30','Asia/Tokyo'])[1 + g % 4]
+	FROM generate_series(1, 10000) g;
+CREATE INDEX ev_bt ON ev (ts);
+CREATE INDEX ev_h ON ev USING hash (ts);
+CREATE INDEX ev_br ON ev USING brin (ts);
+ANALYZE ev;
+SET enable_seqscan = off;
+SET enable_bitmapscan = off;
+EXPLAIN (COSTS OFF) SELECT * FROM ev WHERE ts >= '2026-01-02 00:00 Europe/Berlin' AND ts < '2026-01-02 01:00 Europe/Berlin';
+                                                                                QUERY PLAN                                                                                
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Index Scan using ev_bt on ev
+   Index Cond: ((ts >= '2026-01-02 00:00:00.000000+01:00[Europe/Berlin]'::ora_timestamptz) AND (ts < '2026-01-02 01:00:00.000000+01:00[Europe/Berlin]'::ora_timestamptz))
+(2 rows)
+
+SELECT id, ts FROM ev WHERE ts >= '2026-01-02 00:00 Europe/Berlin' AND ts < '2026-01-02 00:05 Europe/Berlin' ORDER BY ts;
+  id  |                         ts                         
+------+----------------------------------------------------
+ 1380 | 2026-01-02 00:00:00.000000+01:00[Europe/Berlin]
+ 1381 | 2026-01-01 18:01:00.000000-05:00[America/New_York]
+ 1382 | 2026-01-02 04:32:00.000000+05:30
+ 1383 | 2026-01-02 08:03:00.000000+09:00[Asia/Tokyo]
+ 1384 | 2026-01-02 00:04:00.000000+01:00[Europe/Berlin]
+(5 rows)
+
+SELECT id FROM ev WHERE ts = '2026-01-01 05:31 +05:30';
+ id 
+----
+  1
+(1 row)
+
+SET enable_indexscan = off;
+SET enable_bitmapscan = on;
+SELECT count(*) FROM ev WHERE ts BETWEEN '2026-01-03 00:00 UTC' AND '2026-01-04 00:00 UTC';
+ count 
+-------
+  1441
+(1 row)
+
+RESET enable_seqscan;
+RESET enable_indexscan;
+RESET enable_bitmapscan;
+SELECT min(ts), max(ts) FROM ev;
+                        min                         |                       max                       
+----------------------------------------------------+-------------------------------------------------
+ 2025-12-31 19:01:00.000000-05:00[America/New_York] | 2026-01-07 23:40:00.000000+01:00[Europe/Berlin]
+(1 row)
+
+SELECT count(*) FROM ev a JOIN ev b ON a.ts = b.ts;
+ count 
+-------
+ 10000
+(1 row)
+
+SELECT count(DISTINCT ts) FROM ev;
+ count 
+-------
+ 10000
+(1 row)
+
+CREATE TABLE u (ts ora_timestamptz PRIMARY KEY);
+INSERT INTO u VALUES ('2026-10-16 12:00 UTC');
+INSERT INTO u VALUES ('2026-10-16 14:00 Europe/Berlin');
+ERROR:  duplicate key value violates unique constraint "u_pkey"
+DETAIL:  Key (ts)=(2026-10-16 14:00:00.000000+02:00[Europe/Berlin]) already exists.
+-- binary send
+SELECT ora_timestamptz_send('2026-10-16 14:30:00.5 Europe/Berlin'::ora_timestamptz(1));
+                        ora_timestamptz_send                        
+--------------------------------------------------------------------
+ \x000000006ad218c81dcd650000001c2001014575726f70652f4265726c696e00
+(1 row)
+
+SELECT ora_timestamptz_identical(x, x) FROM (SELECT '2026-10-16 14:30:00.123456789 Europe/Berlin'::ora_timestamptz(9) AS x) s;
+ ora_timestamptz_identical 
+---------------------------
+ t
+(1 row)
+
+-- tzdata change support (no change expected here)
+SELECT ora_timestamptz_tzdata_changed('2026-10-16 14:30 Europe/Berlin'),
+       ora_timestamptz_tzdata_fix('2026-10-16 14:30 Europe/Berlin');
+ ora_timestamptz_tzdata_changed |           ora_timestamptz_tzdata_fix            
+--------------------------------+-------------------------------------------------
+ f                              | 2026-10-16 14:30:00.000000+02:00[Europe/Berlin]
+(1 row)
+
+DROP EXTENSION ora_timestamptz CASCADE;
+NOTICE:  drop cascades to 3 other objects
+DETAIL:  drop cascades to column ts of table t
+drop cascades to column ts of table ev
+drop cascades to column ts of table u

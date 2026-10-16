@@ -1,0 +1,7 @@
+# ora_timestamptz extension
+comment = 'Oracle-compatible TIMESTAMP WITH TIME ZONE that preserves the time zone (offset or region)'
+default_version = '1.0'
+module_pathname = '$libdir/ora_timestamptz'
+relocatable = false
+superuser = true
+trusted = false
