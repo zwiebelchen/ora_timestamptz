@@ -75,7 +75,8 @@ SELECT '2026-10-16 14:30 Europe/Berlin'::ora_timestamptz;
 ```
 
 - Ein Neustart oder ein Eintrag in `shared_preload_libraries` ist **nicht**
-  nötig.
+  nötig. Nur das optionale DDL-Umschreiben braucht ein Preload, siehe
+  [unten](#optional-timestamp-with-time-zone-als-ora_timestamptz).
 - `CREATE EXTENSION` braucht Superuser-Rechte, weil die Extension Funktionen in
   `pg_catalog` anlegt. Nur so funktionieren `AT TIME ZONE`, `AT LOCAL` und
   `EXTRACT` mit der normalen SQL-Syntax.
@@ -207,10 +208,80 @@ inklusive Indexnutzung.
 | `ora_timestamptz.output_format` | `iso` | – |
 | `ora_timestamptz.nls_timestamp_tz_format` | `DD-MON-RR HH.MI.SSXFF AM TZR` | `NLS_TIMESTAMP_TZ_FORMAT` |
 | `ora_timestamptz.error_on_overlap_time` | `off` | `ERROR_ON_OVERLAP_TIME` |
+| `ora_timestamptz.replace_timestamptz` | `off` | – (siehe unten) |
+| `ora_timestamptz.replace_schemas` | leer (alle) | – (siehe unten) |
 
 Die Session-Zeitzone ist PostgreSQLs `TimeZone`. Achtung bei
 PostgreSQL: `SET TIME ZONE '+03:00'` wird POSIX-artig als **UTC−3** gelesen.
 Besser ist eine Region oder `SET TIME ZONE INTERVAL '+03:00' HOUR TO MINUTE`.
+
+## Optional: `TIMESTAMP WITH TIME ZONE` als `ora_timestamptz`
+
+PostgreSQLs Grammatik bildet `TIMESTAMP [(p)] WITH TIME ZONE` fest auf den
+eingebauten `timestamptz` ab; den Parser kann keine Extension ändern. Die
+Extension kann aber **DDL** vor der Ausführung umschreiben
+(`ProcessUtility_hook`). Ist das aktiv, legt
+
+```sql
+CREATE TABLE buchung (id bigint, erstellt TIMESTAMP(6) WITH TIME ZONE DEFAULT current_timestamp);
+```
+
+eine echte `ora_timestamptz(6)`-Spalte an. Das gilt auch für DDL, das Hibernate,
+Liquibase, Flyway oder Migrationsskripte erzeugen. Umgeschrieben werden
+`CREATE TABLE` (inkl. Partitionen, temporärer und Foreign Tables),
+`ALTER TABLE … ADD COLUMN` / `ALTER COLUMN … TYPE`, `CREATE DOMAIN` und
+`CREATE TYPE … AS (…)`. Präzision (bis 9) und Arrays werden übernommen.
+
+| `ora_timestamptz.replace_timestamptz` | Wirkung |
+|---|---|
+| `off` (Default) | nichts wird umgeschrieben |
+| `with_time_zone` | nur Typen in der Schreibweise `TIMESTAMP [(p)] WITH TIME ZONE` (Oracle/SQL-Standard); `timestamptz` und `pg_catalog.timestamptz` bleiben nativ |
+| `all` | zusätzlich die Schreibweise `timestamptz` |
+
+`ora_timestamptz.replace_schemas` beschränkt das Umschreiben auf die
+genannten Schemas (z. B. `app, sales`); leer bedeutet alle außer `pg_catalog`
+und `information_schema`. Befehle aus `CREATE EXTENSION`-Skripten werden nie
+umgeschrieben, und in Datenbanken ohne installierte Extension passiert nichts.
+
+**Aktivieren** (Beispiel: nur Datenbank `appdb`, ohne Server-Neustart):
+
+```sql
+CREATE EXTENSION ora_timestamptz;   -- in appdb
+ALTER DATABASE appdb SET session_preload_libraries = 'ora_timestamptz';
+ALTER DATABASE appdb SET ora_timestamptz.replace_timestamptz = with_time_zone;
+-- optional: ALTER DATABASE appdb SET ora_timestamptz.replace_schemas = 'app';
+```
+
+Neue Sessions haben den Hook dann aktiv. Alternativ `ora_timestamptz` in
+`shared_preload_libraries` eintragen (Neustart nötig) und den Parameter in der
+`postgresql.conf`, pro Datenbank oder pro Rolle setzen. Das Vorladen ist
+**Pflicht**: Ohne Preload wird die Bibliothek erst bei der ersten Nutzung des
+Typs geladen, und DDL davor wird nicht umgeschrieben.
+
+**Zu beachten:**
+
+- **Dumps zurückspielen:** `pg_dump` schreibt *native* `timestamptz`-Spalten
+  als `timestamp with time zone`. Ein Restore in eine Datenbank mit aktivem
+  Umschreiben würde daraus `ora_timestamptz` machen. Für den Restore daher
+  abschalten:
+  `PGOPTIONS='-c ora_timestamptz.replace_timestamptz=off' pg_restore …`
+  (bzw. `psql`). Spalten, die bereits `ora_timestamptz` sind, werden als
+  `ora_timestamptz` gedumpt und sind nicht betroffen.
+- **Nur DDL wird umgeschrieben.** Literale und Casts in Abfragen, z. B.
+  `TIMESTAMP WITH TIME ZONE '2026-10-16 14:30 Europe/Berlin'` oder
+  `CAST(x AS TIMESTAMP WITH TIME ZONE)`, wertet der Parser schon als nativen
+  `timestamptz` aus; die Zone ist weg, bevor ein Hook eingreifen kann. Solche
+  Werte als einfachen String (`'2026-10-16 14:30 Europe/Berlin'`) oder als
+  `'…'::ora_timestamptz` schreiben. Für `INSERT`/`UPDATE` in
+  `ora_timestamptz`-Spalten reicht der einfache String.
+- Funktionssignaturen (`CREATE FUNCTION … (p TIMESTAMP WITH TIME ZONE)`),
+  Views und `CREATE TABLE … AS` werden nicht umgeschrieben; ihre Typen ergeben
+  sich aus der Abfrage oder müssen explizit angegeben werden.
+- Bestehende native Spalten werden nicht umgewandelt. Explizit umstellen mit
+  `ALTER TABLE t ALTER COLUMN c TYPE ora_timestamptz USING c;` (sie bekommen
+  dann die Session-Zeitzone, weil die ursprüngliche Zone nie gespeichert war).
+- Java-Code braucht für diese Spalten weiterhin `OraTimestampTzJdbc` (siehe
+  unten); `getTimestamp()` kann Werte mit Region nicht parsen.
 
 ## Zeitzonendaten-Updates (entspricht DBMS_DST)
 
@@ -230,7 +301,8 @@ UPDATE buchung SET erstellt = ora_timestamptz_tzdata_fix(erstellt)
 
 - In DDLs `TIMESTAMP(n) WITH TIME ZONE` durch `ora_timestamptz(n)` ersetzen.
   Der PostgreSQL-Parser bildet die SQL-Standard-Syntax fest auf `timestamptz`
-  ab. In ora2pg geht das z. B. mit
+  ab; alternativ das oben beschriebene optionale DDL-Umschreiben aktivieren.
+  In ora2pg geht das z. B. mit
   `DATA_TYPE TIMESTAMP WITH TIME ZONE:ora_timestamptz`.
 - Für den Export aus Oracle verlustfrei
   `TO_CHAR(col, 'YYYY-MM-DD HH24:MI:SS.FF9 TZH:TZM TZR')` verwenden. Die

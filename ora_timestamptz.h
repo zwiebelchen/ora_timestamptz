@@ -121,6 +121,9 @@ extern OraTsTz *otz_from_parsed(OtzParsed *ps, int32 typmod);
 extern void otz_get_fields(const OraTsTz *v, OtzFields *f);
 extern void otz_current_local(struct pg_tm *tm);
 
+/* ora_tstz_ddl.c */
+extern void otz_ddl_init(void);
+
 /* ora_tstz_format.c */
 extern char *otz_to_char(const OraTsTz *v, const char *fmt);
 extern bool otz_parse_format(const char *str, const char *fmt, OtzParsed *ps,

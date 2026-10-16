@@ -101,6 +101,8 @@ _PG_init(void)
 							 PGC_USERSET, 0,
 							 NULL, NULL, NULL);
 
+	otz_ddl_init();
+
 	MarkGUCPrefixReserved("ora_timestamptz");
 }
 
