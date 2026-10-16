@@ -318,3 +318,7 @@ Varlena, 22 Bytes + Länge des Regionsnamens: `int64` Sekunden seit
 beim Anlegen), Flags, Präzision und der Regionsname. Das Binärformat
 (`send`/`recv`) ist dasselbe in Netzwerk-Byte-Reihenfolge, der Regionsname ist
 nullterminiert.
+
+## Lizenz
+
+MIT – siehe [LICENSE](LICENSE).
